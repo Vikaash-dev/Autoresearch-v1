@@ -45,29 +45,56 @@ class IdeatorAgent(BaseAgent):
         self,
         topic: str,
         n_hypotheses: Optional[int] = None,
+        data_source: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Generate hypotheses for *topic*.
+        Generate hypotheses for *topic* using the configured literature sources.
+
+        Parameters
+        ----------
+        topic:
+            The research topic or question.
+        n_hypotheses:
+            How many hypotheses to generate (overrides config default).
+        data_source:
+            Comma-separated sources: "arxiv", "openalex", or "arxiv,openalex".
+            Overrides the value in config. Defaults to config["data_source"] or "arxiv".
 
         Returns a dict with:
           - hypotheses: List[str]
-          - arxiv_papers: List[Dict]  — titles + abstracts used as seed
+          - arxiv_papers: List[Dict]  — seed papers used for hypothesis generation
           - topic: str
+          - sources: List[str]
         """
-        from autoresearch_v2.env.tools import ArXivTool, LLMTool
+        from autoresearch_v2.env.tools import LiteratureTool, LLMTool
 
         n = n_hypotheses or self._hypothesis_count
-        llm = LLMTool(self.config)
-        arxiv = ArXivTool(self.config)
 
-        self.log(f"Fetching ArXiv papers for topic: {topic!r}")
-        papers = arxiv.search(topic, max_results=self._arxiv_max)
+        # Resolve data sources: CLI arg > config > default
+        raw_source = (
+            data_source
+            or self.config.get("data_source", "arxiv")
+        )
+        sources = [s.strip().lower() for s in raw_source.split(",") if s.strip()]
+
+        llm = LLMTool(self.config)
+        lit = LiteratureTool(self.config, sources=sources)
+
+        self.log(
+            f"Fetching literature for {topic!r} from sources: {sources}"
+        )
+        papers = lit.search(topic, max_results=self._arxiv_max)
 
         self.log(f"Fetched {len(papers)} papers. Generating {n} hypotheses...")
         hypotheses = self._generate_hypotheses(llm, topic, papers, n)
 
         self.log(f"Generated {len(hypotheses)} hypotheses.")
-        return {"hypotheses": hypotheses, "arxiv_papers": papers, "topic": topic}
+        return {
+            "hypotheses": hypotheses,
+            "arxiv_papers": papers,
+            "topic": topic,
+            "sources": sources,
+        }
 
     # ------------------------------------------------------------------
     # Hypothesis generation

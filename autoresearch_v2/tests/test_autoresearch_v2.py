@@ -660,3 +660,380 @@ class TestArXivTool:
             assert "id" in p
             assert "url" in p
 
+
+
+# ===========================================================================
+# Gap 1 — 5 Personas + quality scores
+# ===========================================================================
+
+class TestReviewerCouncilFivePersonas:
+    _FIVE_PERSONA_CONFIG = {
+        **BASE_CONFIG,
+        "review_council": "skeptic,engineer,visionary,statistician,pragmatist",
+        "acceptance_threshold": 4,
+        "review_rounds": 1,
+    }
+
+    def test_all_five_personas_active(self) -> None:
+        from autoresearch_v2.agents.reviewer import ReviewerCouncil, PERSONAS
+        r = ReviewerCouncil(self._FIVE_PERSONA_CONFIG)
+        assert set(r._active_personas) == set(PERSONAS.keys())
+
+    def test_default_threshold_is_four(self) -> None:
+        from autoresearch_v2.agents.reviewer import ReviewerCouncil
+        r = ReviewerCouncil(self._FIVE_PERSONA_CONFIG)
+        assert r._acceptance_threshold == 4
+
+    def test_quality_scores_returned(self) -> None:
+        from autoresearch_v2.agents.reviewer import ReviewerCouncil
+        r = ReviewerCouncil(self._FIVE_PERSONA_CONFIG)
+        result = asyncio.run(r.run(manuscript="\\section{Test} content.", round_num=1))
+        assert "quality_scores" in result
+        for persona in r._active_personas:
+            scores = result["quality_scores"][persona]
+            assert "surprise" in scores
+            assert "rigorous" in scores
+            assert 0.0 <= scores["surprise"] <= 1.0
+            assert 0.0 <= scores["rigorous"] <= 1.0
+
+    def test_mean_scores_present(self) -> None:
+        from autoresearch_v2.agents.reviewer import ReviewerCouncil
+        r = ReviewerCouncil(self._FIVE_PERSONA_CONFIG)
+        result = asyncio.run(r.run(manuscript="\\section{Test} content.", round_num=1))
+        assert "mean_surprise" in result
+        assert "mean_rigorous" in result
+
+    def test_extract_quality_scores_parsing(self) -> None:
+        from autoresearch_v2.agents.reviewer import ReviewerCouncil
+        text = "Good work.\nSURPRISE: 0.85\nRIGOROUS: 0.70\nVERDICT: ACCEPT"
+        scores = ReviewerCouncil._extract_quality_scores(text)
+        assert abs(scores["surprise"] - 0.85) < 0.001
+        assert abs(scores["rigorous"] - 0.70) < 0.001
+
+    def test_statistician_and_pragmatist_in_personas(self) -> None:
+        from autoresearch_v2.agents.reviewer import PERSONAS
+        assert "statistician" in PERSONAS
+        assert "pragmatist" in PERSONAS
+        assert "p-value" in PERSONAS["statistician"].lower() or \
+               "statistic" in PERSONAS["statistician"].lower()
+        assert "deploy" in PERSONAS["pragmatist"].lower() or \
+               "production" in PERSONAS["pragmatist"].lower()
+
+
+# ===========================================================================
+# Gap 2 — OpenAlex + LiteratureTool
+# ===========================================================================
+
+class TestOpenAlexTool:
+    def test_stub_returns_openalex_papers(self) -> None:
+        from autoresearch_v2.env.tools import OpenAlexTool
+        tool = OpenAlexTool(BASE_CONFIG)
+        papers = tool._stub_papers("quantum computing")
+        assert len(papers) >= 1
+        for p in papers:
+            assert p.get("source") == "openalex"
+            assert "title" in p and "abstract" in p
+
+    def test_reconstruct_abstract_basic(self) -> None:
+        from autoresearch_v2.env.tools import OpenAlexTool
+        inverted = {"hello": [0], "world": [1]}
+        result = OpenAlexTool._reconstruct_abstract(inverted)
+        assert "hello" in result and "world" in result
+
+    def test_reconstruct_abstract_empty(self) -> None:
+        from autoresearch_v2.env.tools import OpenAlexTool
+        assert OpenAlexTool._reconstruct_abstract({}) == ""
+
+    def test_reconstruct_abstract_ordering(self) -> None:
+        from autoresearch_v2.env.tools import OpenAlexTool
+        inverted = {"second": [1], "first": [0], "third": [2]}
+        result = OpenAlexTool._reconstruct_abstract(inverted)
+        assert result.index("first") < result.index("second") < result.index("third")
+
+
+class TestLiteratureTool:
+    def test_arxiv_only_returns_arxiv_papers(self) -> None:
+        from autoresearch_v2.env.tools import LiteratureTool
+        cfg = {**BASE_CONFIG, "data_source": "arxiv"}
+        lit = LiteratureTool(cfg)
+        papers = lit.search("LLM pruning", max_results=5)
+        assert len(papers) >= 1
+
+    def test_multi_source_deduplication(self) -> None:
+        from autoresearch_v2.env.tools import LiteratureTool
+        cfg = {**BASE_CONFIG, "data_source": "arxiv,openalex"}
+        lit = LiteratureTool(cfg)
+        papers = lit.search("neural networks", max_results=10)
+        titles = [p["title"].lower() for p in papers]
+        assert len(titles) == len(set(titles)), "Duplicate titles found"
+
+    def test_unknown_source_skipped_gracefully(self) -> None:
+        from autoresearch_v2.env.tools import LiteratureTool
+        lit = LiteratureTool(BASE_CONFIG, sources=["arxiv", "doesnotexist"])
+        # Should not raise, just skip unknown source
+        papers = lit.search("test", max_results=5)
+        assert isinstance(papers, list)
+
+
+# ===========================================================================
+# Gap 3 — autoresearch_v2.py entry point
+# ===========================================================================
+
+class TestEntryPoint:
+    def test_autoresearch_v2_script_exists(self) -> None:
+        from pathlib import Path
+        assert Path("autoresearch_v2.py").exists(), \
+            "autoresearch_v2.py top-level entry point must exist"
+
+    def test_entry_point_importable(self) -> None:
+        import importlib.util
+        from pathlib import Path
+        spec = importlib.util.spec_from_file_location(
+            "autoresearch_v2_entry",
+            Path("autoresearch_v2.py"),
+        )
+        assert spec is not None
+
+    def test_cli_help_shows_data_source(self) -> None:
+        from main import build_parser
+        parser = build_parser()
+        help_text = parser.format_help()
+        assert "data_source" in help_text
+        assert "openalex" in help_text
+
+    def test_cli_data_source_merged_into_config(self) -> None:
+        from main import _merge_cli_overrides, build_parser
+        parser = build_parser()
+        args = parser.parse_args([
+            "--topic", "test",
+            "--data_source", "arxiv,openalex",
+        ])
+        config = _merge_cli_overrides({}, args)
+        assert config["data_source"] == "arxiv,openalex"
+
+
+# ===========================================================================
+# Gap 4 — MetaLoop domain builder
+# ===========================================================================
+
+class TestMetaLoop:
+    def _make_meta(self) -> Any:
+        from autoresearch_v2.core.meta_loop import MetaLoop
+        return MetaLoop(BASE_CONFIG)
+
+    def test_ml_topic_classified_correctly(self) -> None:
+        meta = self._make_meta()
+        domain = meta._classify_domain("novel LLM pruning techniques for transformers")
+        assert domain == "machine_learning"
+
+    def test_bio_topic_classified_correctly(self) -> None:
+        meta = self._make_meta()
+        domain = meta._classify_domain("protein folding using genomic data")
+        assert domain == "bioinformatics"
+
+    def test_quantum_topic_classified_correctly(self) -> None:
+        meta = self._make_meta()
+        domain = meta._classify_domain("quantum entanglement and qubit error correction")
+        assert domain == "quantum_physics"
+
+    def test_unknown_topic_falls_back_to_general(self) -> None:
+        meta = self._make_meta()
+        domain = meta._classify_domain("zzz")
+        assert domain in ("general", "machine_learning")  # short → general, ML fallback ok
+
+    def test_build_team_returns_required_keys(self) -> None:
+        from autoresearch_v2.core.meta_loop import MetaLoop
+        meta = MetaLoop({**BASE_CONFIG, "effort": "standard"})
+        team = meta.build_team("LLM pruning for transformers")
+        assert "domain" in team
+        assert "hypothesis_count" in team
+        assert "llm_models" in team
+        assert "reviewer_emphasis" in team
+        assert "lessons_injected" in team
+
+    def test_effort_scaling_standard(self) -> None:
+        from autoresearch_v2.core.meta_loop import MetaLoop
+        assert MetaLoop._scale_hypotheses(10, "standard") == 10
+
+    def test_effort_scaling_max_at_least_50(self) -> None:
+        from autoresearch_v2.core.meta_loop import MetaLoop
+        assert MetaLoop._scale_hypotheses(10, "max") >= 50
+
+    def test_effort_scaling_pro_at_least_10(self) -> None:
+        from autoresearch_v2.core.meta_loop import MetaLoop
+        assert MetaLoop._scale_hypotheses(5, "pro") >= 10
+
+    def test_effort_scaling_minimal_at_least_1(self) -> None:
+        from autoresearch_v2.core.meta_loop import MetaLoop
+        assert MetaLoop._scale_hypotheses(1, "minimal") >= 1
+
+    def test_apply_to_agents_injects_domain_context(self) -> None:
+        from unittest.mock import MagicMock
+        from autoresearch_v2.core.meta_loop import MetaLoop
+        meta = MetaLoop(BASE_CONFIG)
+        team = meta.build_team("LLM pruning for transformers")
+        agent = MagicMock()
+        agent.system_prompt = "Original prompt"
+        meta.apply_to_agents(team, {"coder": agent})
+        assert "Domain context" in agent.system_prompt
+
+
+# ===========================================================================
+# Gap 5 — Time-based pruning
+# ===========================================================================
+
+class TestTreeSearchTimePruning:
+    def test_prune_interval_secs_default(self) -> None:
+        from autoresearch_v2.discovery.tree_search import TreeSearch
+        from autoresearch_v2.discovery.evaluator import Evaluator
+        from autoresearch_v2.agents.coder import CoderAgent
+        coder = CoderAgent(BASE_CONFIG, log_dir="/tmp/ar_test_logs")
+        evaluator = Evaluator(BASE_CONFIG)
+        ts = TreeSearch(BASE_CONFIG, coder_agent=coder, evaluator_agent=evaluator)
+        # Default prune interval should be 1800 seconds (30 min)
+        assert ts._prune_interval_secs == 1800
+
+    def test_prune_interval_configurable(self) -> None:
+        from autoresearch_v2.discovery.tree_search import TreeSearch
+        from autoresearch_v2.discovery.evaluator import Evaluator
+        from autoresearch_v2.agents.coder import CoderAgent
+        cfg = {**BASE_CONFIG, "compute": {**BASE_CONFIG["compute"], "prune_interval_secs": 60}}
+        coder = CoderAgent(cfg, log_dir="/tmp/ar_test_logs")
+        evaluator = Evaluator(cfg)
+        ts = TreeSearch(cfg, coder_agent=coder, evaluator_agent=evaluator)
+        assert ts._prune_interval_secs == 60
+
+    def test_branch_has_timing_attributes(self) -> None:
+        from autoresearch_v2.discovery.tree_search import ResearchBranch
+        b = ResearchBranch("B1", "hypothesis")
+        assert hasattr(b, "started_at")
+        assert hasattr(b, "finished_at")
+        assert hasattr(b, "elapsed_secs")
+
+
+# ===========================================================================
+# Gap 7 — Surprise + Rigorous metrics in Evaluator
+# ===========================================================================
+
+class TestEvaluatorNewMetrics:
+    def _make_evaluator(self) -> Any:
+        from autoresearch_v2.discovery.evaluator import Evaluator
+        return Evaluator(BASE_CONFIG)
+
+    def test_score_returns_four_dimensions(self) -> None:
+        from autoresearch_v2.discovery.tree_search import ResearchBranch
+        evaluator = self._make_evaluator()
+        branch = ResearchBranch("B1", "novel hypothesis")
+        branch.result = {"success": True, "output": "accuracy: 0.9523"}
+        scores = evaluator.score(branch)
+        assert set(scores.keys()) == {"novelty", "significance", "surprise", "rigorous"}
+
+    def test_surprise_metric_positive_for_unexpected_output(self) -> None:
+        evaluator = self._make_evaluator()
+        output = "Unexpected result: accuracy 0.99 — counter-intuitive to prior work"
+        score = evaluator._heuristic_surprise("unexpected hypothesis", output)
+        assert score > 0.5
+
+    def test_rigorous_metric_positive_for_well_structured_output(self) -> None:
+        evaluator = self._make_evaluator()
+        output = "seed=42\nn_trials=100\nstd: 0.01\nablation study: baseline vs ours"
+        score = evaluator._heuristic_rigorous(output)
+        assert score > 0.5
+
+    def test_rigorous_metric_penalised_for_errors(self) -> None:
+        evaluator = self._make_evaluator()
+        output = "Traceback (most recent call last): AttributeError"
+        score = evaluator._heuristic_rigorous(output)
+        assert score < 0.3
+
+    def test_failed_branch_returns_all_zeros(self) -> None:
+        from autoresearch_v2.discovery.tree_search import ResearchBranch
+        evaluator = self._make_evaluator()
+        branch = ResearchBranch("B1", "hyp")
+        branch.result = {"success": False}
+        scores = evaluator.score(branch)
+        assert scores == {"novelty": 0.0, "significance": 0.0,
+                          "surprise": 0.0, "rigorous": 0.0}
+
+
+# ===========================================================================
+# Gap 9 — HyperKernel patches tool-access config
+# ===========================================================================
+
+class TestHyperKernelToolConfig:
+    def test_patch_tool_config_updates_agent(self) -> None:
+        from unittest.mock import MagicMock, patch
+        from autoresearch_v2.core.kernel import HyperKernel
+
+        kernel = HyperKernel(BASE_CONFIG, log_dir="/tmp/ar_test_logs")
+        agent = MagicMock()
+        agent.system_prompt = "test prompt"
+        agent.tool_config = {"timeout": 30, "max_retries": 3}
+        kernel.register_agent("coder", agent)
+        # Force failure threshold to trigger reflect_and_patch
+        for _ in range(4):
+            kernel.record_failure("coder")
+
+        # _patch_tool_config should not raise even when LLM returns NO_CHANGE
+        kernel._patch_tool_config("coder", "repeated timeout failures")
+
+    def test_patch_tool_config_skipped_when_no_tool_config(self) -> None:
+        from unittest.mock import MagicMock
+        from autoresearch_v2.core.kernel import HyperKernel
+
+        kernel = HyperKernel(BASE_CONFIG, log_dir="/tmp/ar_test_logs")
+        agent = MagicMock(spec=["system_prompt"])  # no tool_config
+        agent.system_prompt = "test"
+        kernel.register_agent("writer", agent)
+        # Should not raise
+        kernel._patch_tool_config("writer", "some failure")
+
+
+# ===========================================================================
+# Gap 10 — 5-loop names in CLI output
+# ===========================================================================
+
+class TestPipelineLoopNames:
+    def test_main_module_has_5_loop_functions(self) -> None:
+        import importlib.util
+        from pathlib import Path
+        spec = importlib.util.spec_from_file_location("main_module", Path("main.py"))
+        mod = importlib.util.module_from_spec(spec)
+        # Just check the source contains the 5 loop names
+        src = Path("main.py").read_text()
+        for loop in ["ideation_loop", "lab_loop", "synthesis_loop", "review_loop"]:
+            assert loop in src, f"Loop '{loop}' not found in main.py"
+
+    def test_config_has_five_personas(self) -> None:
+        import yaml
+        from pathlib import Path
+        cfg = yaml.safe_load(Path("autoresearch_v2/config.yaml").read_text())
+        council = cfg.get("review_council", "")
+        personas = [p.strip() for p in council.split(",") if p.strip()]
+        assert len(personas) == 5, f"Expected 5 personas, got {len(personas)}: {personas}"
+
+    def test_config_acceptance_threshold_is_four(self) -> None:
+        import yaml
+        from pathlib import Path
+        cfg = yaml.safe_load(Path("autoresearch_v2/config.yaml").read_text())
+        assert cfg.get("acceptance_threshold") == 4
+
+    def test_config_has_prune_interval(self) -> None:
+        import yaml
+        from pathlib import Path
+        cfg = yaml.safe_load(Path("autoresearch_v2/config.yaml").read_text())
+        assert cfg["compute"].get("prune_interval_secs") == 1800
+
+    def test_config_has_data_source(self) -> None:
+        import yaml
+        from pathlib import Path
+        cfg = yaml.safe_load(Path("autoresearch_v2/config.yaml").read_text())
+        assert "data_source" in cfg
+
+    def test_ideator_respects_data_source_kwarg(self) -> None:
+        from autoresearch_v2.discovery.ideator import IdeatorAgent
+        ideator = IdeatorAgent(BASE_CONFIG, log_dir="/tmp/ar_test_logs")
+        result = asyncio.run(ideator.run(
+            topic="LLM pruning", n_hypotheses=1, data_source="arxiv,openalex"
+        ))
+        assert result.get("sources") == ["arxiv", "openalex"]

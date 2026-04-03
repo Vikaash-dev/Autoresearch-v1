@@ -152,18 +152,63 @@ class HyperKernel:
         """
         Run one reflection-and-patch cycle for an agent in a Reasoning Loop.
 
+        Patches BOTH the system prompt AND the agent's tool-access config
+        (proposal: "rewrites the Coder Agent's system prompt or tool-access logic").
+
         Returns True if a patch was applied.
         """
         if not self._detect_reasoning_loop(agent_name):
             return False
         logger.warning(
-            "[HyperKernel] Reasoning loop detected for '%s' — patching.", agent_name
+            "[HyperKernel] Reasoning loop detected for '%s' — patching prompt + tool config.",
+            agent_name,
         )
         new_prompt = self._generate_patch(agent_name, failure_summary)
         patched = self.write_agent_prompt(agent_name, new_prompt)
         if patched:
+            self._patch_tool_config(agent_name, failure_summary)
             self._failure_counts[agent_name] = 0
         return patched
+
+    def _patch_tool_config(self, agent_name: str, failure_summary: str) -> None:
+        """
+        Ask the LLM whether tool-access config should be adjusted, then apply
+        the patch to the agent's ``tool_config`` attribute if present.
+
+        This implements the proposal requirement to patch "tool-access logic"
+        in addition to the system prompt.
+        """
+        agent = self._agent_registry.get(agent_name)
+        if agent is None or not hasattr(agent, "tool_config"):
+            return
+        current_tools = dict(getattr(agent, "tool_config", {}))
+        try:
+            import json
+
+            from autoresearch_v2.env.tools import LLMTool
+
+            llm = LLMTool(self.config)
+            prompt = (
+                f"The agent '{agent_name}' failed repeatedly: {failure_summary}\n"
+                f"Current tool config: {current_tools}\n\n"
+                "Suggest a minimal JSON patch to the tool config to bypass this failure "
+                "(e.g. disable a broken tool, reduce timeout, add retry). "
+                "Respond ONLY with valid JSON or 'NO_CHANGE'."
+            )
+            response = llm.complete(prompt).strip()
+            if response.upper() == "NO_CHANGE" or not response.startswith("{"):
+                logger.debug(
+                    "[HyperKernel] Tool config unchanged for '%s' (LLM said NO_CHANGE).",
+                    agent_name,
+                )
+                return
+            patch = json.loads(response)
+            agent.tool_config = {**current_tools, **patch}
+            logger.info(
+                "[HyperKernel] Tool config patched for '%s': %s", agent_name, patch
+            )
+        except Exception as exc:
+            logger.debug("[HyperKernel] Tool config patch skipped for '%s': %s", agent_name, exc)
 
     # ------------------------------------------------------------------
     # Monitoring loop

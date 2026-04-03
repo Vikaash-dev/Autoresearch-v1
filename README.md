@@ -237,5 +237,5 @@ User CLI (main.py)
 - **Compute-optimal**: 90% of thinking time on *why*, 10% on *how*. The Ideator runs thought-experiments (hypothesis simulations) before writing a single line of code.
 - **Architecture-heterogeneous verification**: Author (Transformer-based LLM) must convince reviewers with different inductive biases. Truth must transcend any single architecture.
 - **No echo chamber**: The Skeptic, Engineer, and Visionary reviewers independently model different cognitive communities, preventing the "Superhuman Sycophancy" failure mode.
-- **Physicality anchor**: All claims traced to execution logs; optional integration with real-world datasets (OpenAQ, CERN, NASA) via `env/tools.py`.
+- **Physicality anchor**: All claims traced to execution logs; optional integration with cloud labs or verified public datasets (OpenAQ, CERN, NASA) is a planned future extension via `env/tools.py`.
 

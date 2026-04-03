@@ -1,0 +1,66 @@
+# AutoResearch v2 (HRDE) Configuration
+# Hyper-parameters for "Effort" and "Compute"
+
+# LLM Configuration
+llm:
+  default_model: "gpt-4o"
+  writer_model: "gpt-4o"
+  coder_model: "claude-3-5-sonnet-20241022"
+  reviewer_model: "gpt-4o"
+  ideator_model: "gemini-1.5-pro"
+  # LiteLLM-compatible model names; set provider API keys in environment
+  provider: "litellm"  # litellm | langchain
+  temperature: 0.7
+  max_tokens: 4096
+
+# Effort Levels: minimal | standard | pro | max
+effort: "standard"
+
+# Compute / Parallelism
+compute:
+  branches: 3              # Number of parallel hypothesis branches
+  max_branch_workers: 4    # Max concurrent branch workers
+  prune_after_pct: 0.20    # Prune bottom branches after this fraction of budget
+  prune_bottom_pct: 0.50   # Kill this fraction of branches when pruning
+  max_debug_retries: 3     # Max self-healing retries in CoderAgent
+  kernel_check_interval: 5 # Seconds between Hyper-Kernel reflection passes
+  sandbox_timeout: 120     # Seconds before sandbox execution times out
+
+# Memory (ChromaDB)
+memory:
+  persist_directory: "./research_memory"
+  collection_name: "autoresearch_v2"
+  embedding_model: "all-MiniLM-L6-v2"  # sentence-transformers model
+
+# Reviewer Council personas (comma-separated subset)
+review_council: "skeptic,engineer,visionary"
+review_rounds: 3
+acceptance_threshold: 2   # Min approvals out of 3 personas to accept paper
+
+# Discovery / Ideation
+ideation:
+  arxiv_max_results: 20
+  hypothesis_count: 10
+  crossover_rate: 0.5
+  mutation_rate: 0.2
+
+# Output
+output:
+  base_dir: "./output"
+  latex_template: "neurips"   # neurips | iclr | arxiv
+  generate_pdf: false          # Requires pdflatex to be installed
+  zip_source: true
+
+# Logging
+logging:
+  level: "INFO"
+  log_dir: "./logs"
+  enable_telemetry: true
+
+# Docker Sandbox
+sandbox:
+  image: "python:3.10-slim"
+  network: "none"             # Isolate containers from the network
+  mem_limit: "512m"
+  cpu_quota: 50000            # 50% of one CPU core
+  enabled: false              # Set to true when Docker daemon is available

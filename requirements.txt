@@ -1,0 +1,40 @@
+# AutoResearch v2 (HRDE) — Python dependencies
+#
+# Install with:   pip install -r requirements.txt
+# Minimum Python: 3.10
+
+# Core orchestration
+networkx>=3.0
+
+# LLM orchestration (multi-provider)
+litellm>=1.35.0
+
+# Vector database for persistent research memory
+chromadb>=0.4.0
+
+# HTTP / ArXiv fetching (standard library urllib used; requests optional)
+requests>=2.31.0
+
+# Scientific computing (used inside sandbox experiments)
+numpy>=1.24.0
+scipy>=1.10.0
+scikit-learn>=1.3.0
+
+# YAML configuration
+PyYAML>=6.0
+
+# Plotting
+matplotlib>=3.7.0
+
+# Sentence embeddings for ChromaDB (optional — ChromaDB installs its own)
+# sentence-transformers>=2.2.0
+
+# Async support (standard in Python 3.10+; listed for clarity)
+# asyncio is part of the standard library
+
+# Optional: Ray for distributed compute
+# ray>=2.9.0
+
+# Optional: LangChain alternative
+# langchain>=0.2.0
+# langchain-openai>=0.1.0

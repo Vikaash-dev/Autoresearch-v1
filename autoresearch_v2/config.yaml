@@ -1,0 +1,76 @@
+# AutoResearch v2 (HRDE) Configuration
+# Hyper-parameters for "Effort" and "Compute"
+# Proposal-aligned: 5 personas, 4/5 consensus, 50+ hypotheses at max effort
+
+# LLM Configuration — "Council of Minds"
+# (GPT-4o for Writing, Claude 3.5 Sonnet for Coding, Gemini 1.5 Pro for Literature)
+llm:
+  default_model: "gpt-4o"
+  writer_model: "gpt-4o"
+  coder_model: "claude-3-5-sonnet-20241022"
+  reviewer_model: "gpt-4o"
+  ideator_model: "gemini-1.5-pro"
+  provider: "litellm"          # litellm | langchain
+  temperature: 0.7
+  max_tokens: 4096
+  scoring_enabled: true        # Use LLM for branch scoring when available
+
+# Effort Levels: minimal | standard | pro | max
+# At "max" the MetaLoop scales hypotheses to 50+ (proposal requirement)
+effort: "standard"
+
+# Compute / Parallelism
+compute:
+  branches: 3                  # Number of parallel hypothesis branches (CLI: --branches)
+  max_branch_workers: 4        # Max concurrent branch workers
+  prune_after_pct: 0.20        # Count-based pruning: after this fraction of early branches
+  prune_bottom_pct: 0.50       # Kill this fraction of low-scoring branches
+  prune_interval_secs: 1800    # Time-based pruning: every 30 min (proposal requirement)
+  max_debug_retries: 3         # Max self-healing retries before HyperKernel patches
+  kernel_check_interval: 5     # Seconds between HyperKernel reflection passes
+  sandbox_timeout: 120         # Seconds before sandbox execution times out
+
+# Memory — Vectorized Research Graph
+# ChromaDB by default; falls back to in-memory when unavailable
+memory:
+  persist_directory: "./research_memory"
+  collection_name: "autoresearch_v2"
+  embedding_model: "all-MiniLM-L6-v2"
+
+# Reviewer Council — 5 personas (proposal: "4/5 consensus")
+# Personas: skeptic | engineer | visionary | statistician | pragmatist
+review_council: "skeptic,engineer,visionary,statistician,pragmatist"
+review_rounds: 3
+acceptance_threshold: 4        # Need 4 out of 5 personas to approve (proposal: "4/5")
+
+# Discovery / Ideation
+# hypothesis_count is the *base* count; MetaLoop scales it by effort level:
+#   minimal  → 0.5× (≥1)   standard → 1×   pro → 3× (≥10)   max → 5× (≥50)
+data_source: "arxiv"           # arxiv | openalex | arxiv,openalex
+ideation:
+  arxiv_max_results: 20
+  hypothesis_count: 10         # Base count; scaled by effort (50+ at max)
+  crossover_rate: 0.5
+  mutation_rate: 0.2
+
+# Output
+output:
+  base_dir: "./output"
+  latex_template: "neurips"    # neurips | iclr | arxiv
+  generate_pdf: false          # Requires pdflatex
+  zip_source: true             # Package experiment code into source_code.zip
+
+# Logging
+logging:
+  level: "INFO"
+  log_dir: "./logs"
+  enable_telemetry: true
+
+# Docker Sandbox (proposal: Docker-in-Docker for secure execution)
+sandbox:
+  image: "python:3.10-slim"
+  network: "none"              # Isolate containers from the network
+  mem_limit: "512m"
+  cpu_quota: 50000             # 50% of one CPU core
+  enabled: false               # Set to true when Docker daemon is available
+

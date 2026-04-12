@@ -167,7 +167,7 @@ async def run_pipeline(config: dict, topic: str) -> dict:
             })
         write_result = await writer.run(
             topic=topic, hypotheses=results.get("hypotheses", []),
-            experiment_results=exp_results,
+            experiment_results=[{"branch_id": b.branch_id, "hypothesis": b.hypothesis, "success": b.status == "done", "output": (b.result or {}).get("output", ""), "code": (b.result or {}).get("code", "")} for b in results.get("tree", {}).get("branches", [])],
         )
         results["manuscript"] = write_result
         logger.info("Loop 4 complete: manuscript drafted.")
@@ -188,7 +188,7 @@ async def run_pipeline(config: dict, topic: str) -> dict:
             initial_manuscript=initial_src,
             topic=topic,
             hypotheses=results.get("hypotheses", []),
-            experiment_results=results.get("tree", {}).get("branches", []),
+            experiment_results=[{"branch_id": b.branch_id, "hypothesis": b.hypothesis, "success": b.status == "done", "output": (b.result or {}).get("output", ""), "code": (b.result or {}).get("code", "")} for b in results.get("tree", {}).get("branches", [])],
         )
         results["review"] = review_result
         accepted = review_result.get("accepted", False)
